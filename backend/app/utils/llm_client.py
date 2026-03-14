@@ -1,18 +1,18 @@
 """
 LLM客户端封装
-统一使用OpenAI格式调用
+统一使用OpenAI格式调用，支持reasoning模型（reasoning_content字段）
 """
 
 import json
 import re
 from typing import Optional, Dict, Any, List
-from openai import OpenAI
+import httpx
 
 from ..config import Config
 
 
 class LLMClient:
-    """LLM客户端"""
+    """LLM客户端 - 使用httpx直接调用，兼容reasoning模型"""
     
     def __init__(
         self,
@@ -27,10 +27,15 @@ class LLMClient:
         if not self.api_key:
             raise ValueError("LLM_API_KEY 未配置")
         
-        self.client = OpenAI(
-            api_key=self.api_key,
-            base_url=self.base_url
-        )
+        # Use httpx with SSL verification disabled for self-signed certs
+        self.http_client = httpx.Client(verify=False, timeout=300)
+    
+    def _get_url(self) -> str:
+        """Build the chat completions URL"""
+        base = self.base_url.rstrip('/')
+        if base.endswith('/chat/completions'):
+            return base
+        return f"{base}/chat/completions"
     
     def chat(
         self,
@@ -51,7 +56,7 @@ class LLMClient:
         Returns:
             模型响应文本
         """
-        kwargs = {
+        payload = {
             "model": self.model,
             "messages": messages,
             "temperature": temperature,
@@ -59,10 +64,34 @@ class LLMClient:
         }
         
         if response_format:
-            kwargs["response_format"] = response_format
+            payload["response_format"] = response_format
         
-        response = self.client.chat.completions.create(**kwargs)
-        content = response.choices[0].message.content
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+        }
+        
+        url = self._get_url()
+        response = self.http_client.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        # Handle double-encoded JSON (API returns JSON string instead of object)
+        if isinstance(data, str):
+            import logging
+            logging.getLogger('mirofish.llm').warning(f"API returned double-encoded JSON, re-parsing...")
+            data = json.loads(data)
+        
+        message = data["choices"][0]["message"]
+        
+        # Try content first, then reasoning_content for reasoning models
+        content = message.get("content")
+        if not content:
+            content = message.get("reasoning_content", "")
+        if content is None:
+            content = ""
+        
         # 部分模型（如MiniMax M2.5）会在content中包含<think>思考内容，需要移除
         content = re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
         return content
@@ -88,16 +117,26 @@ class LLMClient:
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
-            response_format={"type": "json_object"}
+            # Don't send response_format - some models don't support it
+            # response_format={"type": "json_object"}
         )
         # 清理markdown代码块标记
         cleaned_response = response.strip()
         cleaned_response = re.sub(r'^```(?:json)?\s*\n?', '', cleaned_response, flags=re.IGNORECASE)
         cleaned_response = re.sub(r'\n?```\s*$', '', cleaned_response)
         cleaned_response = cleaned_response.strip()
+        
+        # Try to extract JSON from the response if it contains other text
+        if cleaned_response and not cleaned_response.startswith('{'):
+            # Look for JSON object in the response
+            json_match = re.search(r'\{[\s\S]*\}', cleaned_response)
+            if json_match:
+                cleaned_response = json_match.group(0)
+
+        if not cleaned_response:
+            raise ValueError("LLM返回空响应")
 
         try:
             return json.loads(cleaned_response)
         except json.JSONDecodeError:
-            raise ValueError(f"LLM返回的JSON格式无效: {cleaned_response}")
-
+            raise ValueError(f"LLM返回的JSON格式无效: {cleaned_response[:500]}")
