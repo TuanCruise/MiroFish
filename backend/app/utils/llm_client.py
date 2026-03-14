@@ -24,8 +24,9 @@ class LLMClient:
         self.base_url = base_url or Config.LLM_BASE_URL
         self.model = model or Config.LLM_MODEL_NAME
         
-        if not self.api_key:
-            raise ValueError("LLM_API_KEY not configured")
+        # API key is optional - some internal proxy servers don't require authentication
+        if self.api_key and self.api_key.lower() in ('none', 'null', ''):
+            self.api_key = None
         
         # Use httpx with SSL verification disabled for self-signed certs
         self.http_client = httpx.Client(verify=False, timeout=300)
@@ -68,11 +69,37 @@ class LLMClient:
         
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
         }
+        # Only add Authorization header if API key is provided
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
         
         url = self._get_url()
         response = self.http_client.post(url, json=payload, headers=headers)
+        
+        # Check for HTML response (proxy redirect, login page, or error page)
+        content_type = response.headers.get('content-type', '')
+        response_text = response.text
+        if response_text.lstrip().startswith('<') or 'text/html' in content_type:
+            raise ValueError(
+                f"LLM server returned HTML instead of JSON. "
+                f"Status: {response.status_code}. "
+                f"This may indicate a proxy issue, authentication problem, or request too large. "
+                f"HTML snippet: {response_text[:200]}"
+            )
+        
+        # Handle 429 rate limit with retry (Gemini free tier: 15 req/min)
+        if response.status_code == 429:
+            import time
+            import logging as _log
+            _log.getLogger('mirofish.llm').warning("Rate limited (429), retrying in 15s...")
+            time.sleep(15)
+            response = self.http_client.post(url, json=payload, headers=headers)
+            if response.status_code == 429:
+                _log.getLogger('mirofish.llm').warning("Still rate limited, retrying in 30s...")
+                time.sleep(30)
+                response = self.http_client.post(url, json=payload, headers=headers)
+        
         response.raise_for_status()
         
         data = response.json()

@@ -9,149 +9,16 @@ from ..utils.llm_client import LLMClient
 
 
 # Ontology generation system prompt
-ONTOLOGY_SYSTEM_PROMPT = """You are a professional knowledge graph ontology design expert. Your task is to analyze the given text content and simulation requirements, and design entity types and relationship types suitable for **social media public opinion simulation**.
+ONTOLOGY_SYSTEM_PROMPT = """You are a schema designer for a social media simulation platform. Given source material and a simulation goal, design actor categories and interaction types for a public opinion simulation.
 
-**IMPORTANT: You must output valid JSON format data, do not output anything else.**
+Return ONLY a data object. No explanations. No prose. The object needs three top-level keys: entity_types (list), edge_types (list), analysis_summary (string).
 
-## Core Task Background
+For entity_types, provide exactly 10 entries. Last 2 must be Person and Organization as catch-all fallbacks. First 8 are specific types from the text context. Entities must be real-world actors (people, companies, agencies, media) that can interact on social media. NOT abstract concepts like opinions or trends. Use full_name, org_name, title, role, position as field names (avoid: name, uuid, group_id, created_at, summary).
 
-We are building a **social media public opinion simulation system**. In this system:
-- Each entity is an "account" or "subject" that can speak, interact, and spread information on social media.
-- Entities will influence, forward, comment, and respond to each other.
-- We need to simulate the reactions of various parties and information spread paths in public opinion events.
+For edge_types, provide 6-10 entries with UPPER_SNAKE_CASE names describing real social connections. Match source and target to your entity type names.
 
-Therefore, **entities must be real subjects that exist in reality and can speak and interact on social media**:
-
-**Can be**:
-- Specific individuals (public figures, parties involved, opinion leaders, experts/scholars, ordinary people)
-- Companies, enterprises (including their official accounts)
-- Organizations and institutions (universities, associations, NGOs, labor unions, etc.)
-- Government departments, regulatory agencies
-- Media organizations (newspapers, TV stations, self-media, websites)
-- Social media platforms themselves
-- Specific group representatives (e.g., alumni associations, fan groups, rights defense groups, etc.)
-
-**Cannot be**:
-- Abstract concepts (e.g., "public opinion", "emotion", "trend")
-- Themes/Topics (e.g., "academic integrity", "education reform")
-- Opinions/Attitudes (e.g., "supporters", "opponents")
-
-## Output Format
-
-Please output in JSON format, containing the following structure:
-
-```json
-{
-    "entity_types": [
-        {
-            "name": "Entity type name (English, PascalCase)",
-            "description": "Short description (English, max 100 characters)",
-            "attributes": [
-                {
-                    "name": "Attribute name (English, snake_case)",
-                    "type": "text",
-                    "description": "Attribute description"
-                }
-            ],
-            "examples": ["Example entity 1", "Example entity 2"]
-        }
-    ],
-    "edge_types": [
-        {
-            "name": "Relationship type name (English, UPPER_SNAKE_CASE)",
-            "description": "Short description (English, max 100 characters)",
-            "source_targets": [
-                {"source": "Source entity type", "target": "Target entity type"}
-            ],
-            "attributes": []
-        }
-    ],
-    "analysis_summary": "Brief analysis description of the text content (English)"
-}
-```
-
-## Design Guidelines (Extremely Important!)
-
-### 1. Entity Type Design - Strictly Adhere
-
-**Quantity Requirement: Must be exactly 10 entity types**
-
-**Hierarchical Requirement (Must contain both specific types and fallback types)**:
-
-Your 10 entity types must include the following hierarchy:
-
-A. **Fallback Types (Must be included, place at the last 2 of the list)**:
-   - `Person`: Fallback type for any natural person individual. When a person does not belong to other more specific person types, classify them here.
-   - `Organization`: Fallback type for any organization/institution. When an organization does not belong to other more specific organization types, classify them here.
-
-B. **Specific Types (8 types, designed based on text content)**:
-   - Design more specific types for the main characters appearing in the text.
-   - Example: If the text involves an academic event, you can have `Student`, `Professor`, `University`.
-   - Example: If the text involves a business event, you can have `Company`, `CEO`, `Employee`.
-
-**Why fallback types are needed**:
-   - Various people will appear in the text, such as "primary and secondary school teachers", "passerby A", "a certain netizen".
-   - If there is no dedicated type match, they should be classified as `Person`.
-   - Similarly, small organizations, temporary groups, etc., should be classified as `Organization`.
-
-**Design Principles for Specific Types**:
-   - Identify frequently appearing or key character types from the text.
-   - Each specific type should have clear boundaries to avoid overlap.
-   - 'description' must clearly explain the difference between this type and the fallback type.
-
-### 2. Relationship Type Design
-
-- Quantity: 6-10 types
-- Relationships should reflect real connections in social media interactions.
-- Ensure the relationship's source_targets cover your defined entity types.
-
-### 3. Attribute Design
-
-- 1-3 key attributes per entity type.
-- **Note**: Attribute names cannot use `name`, `uuid`, `group_id`, `created_at`, `summary` (these are system reserved words).
-- Recommended to use: `full_name`, `title`, `role`, `position`, `location`, `description`, etc.
-
-## Entity Type Reference
-
-**Personal types (Specific)**:
-- Student
-- Professor
-- Journalist
-- Celebrity
-- Executive
-- Official
-- Lawyer
-- Doctor
-
-**Personal types (Fallback)**:
-- Person (Any natural person not fitting the specific types above)
-
-**Organization types (Specific)**:
-- University
-- Company
-- GovernmentAgency
-- MediaOutlet
-- Hospital
-- School
-- NGO
-
-**Organization types (Fallback)**:
-- Organization (Any organization/institution not fitting the specific types above)
-
-## Relationship Type Reference
-
-- WORKS_FOR
-- STUDIES_AT
-- AFFILIATED_WITH
-- REPRESENTS
-- REGULATES
-- REPORTS_ON
-- COMMENTS_ON
-- RESPONDS_TO
-- SUPPORTS
-- OPPOSES
-- COLLABORATES_WITH
-- COMPETES_WITH
+Suggested actor categories: Student, Professor, Journalist, Celebrity, Executive, Official, Lawyer, Doctor, University, Company, GovernmentAgency, MediaOutlet, Hospital, School, NGO
+Suggested interaction types: WORKS_FOR, STUDIES_AT, AFFILIATED_WITH, REPRESENTS, REGULATES, REPORTS_ON, COMMENTS_ON, RESPONDS_TO, SUPPORTS, OPPOSES, COLLABORATES_WITH, COMPETES_WITH
 """
 
 
@@ -266,7 +133,13 @@ Please design entity types and relationship types suitable for social public opi
             result["analysis_summary"] = ""
         
         # Validate entity types
+        normalized_entities = []
         for entity in result["entity_types"]:
+            # Normalize field names: Gemini may return 'type_name' instead of 'name'
+            if "name" not in entity:
+                entity["name"] = entity.pop("type_name", entity.pop("entity_name", entity.pop("type", None)))
+            if not entity.get("name"):
+                continue  # Skip entities with no name
             if "attributes" not in entity:
                 entity["attributes"] = []
             if "examples" not in entity:
@@ -274,15 +147,26 @@ Please design entity types and relationship types suitable for social public opi
             # Ensure description does not exceed 100 characters
             if len(entity.get("description", "")) > 100:
                 entity["description"] = entity["description"][:97] + "..."
+            normalized_entities.append(entity)
+        result["entity_types"] = normalized_entities
         
         # Validate relationship types
+        normalized_edges = []
         for edge in result["edge_types"]:
+            # Normalize field names: Gemini may return 'edge_name' or 'relationship_name'
+            if "name" not in edge:
+                edge["name"] = edge.pop("edge_name", edge.pop("relationship_name", edge.pop("type_name", None)))
+            if not edge.get("name"):
+                continue  # Skip edges with no name
+            # Normalize source_targets: Gemini may use different field name
             if "source_targets" not in edge:
-                edge["source_targets"] = []
+                edge["source_targets"] = edge.pop("source_target", edge.pop("connections", []))
             if "attributes" not in edge:
                 edge["attributes"] = []
             if len(edge.get("description", "")) > 100:
                 edge["description"] = edge["description"][:97] + "..."
+            normalized_edges.append(edge)
+        result["edge_types"] = normalized_edges
         
         # Zep API limit: max 10 custom entity types, max 10 custom edge types
         MAX_ENTITY_TYPES = 10

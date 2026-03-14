@@ -1,0 +1,59 @@
+diff --git a/frontend/src/api/graph.js b/frontend/src/api/graph.js
+index ef90a2b..0c6bdf5 100644
+--- a/frontend/src/api/graph.js
++++ b/frontend/src/api/graph.js
+@@ -1,8 +1,8 @@
+ import service, { requestWithRetry } from './index'
+ 
+ /**
+- * 生成本体（上传文档和模拟需求）
+- * @param {Object} data - 包含files, simulation_requirement, project_name等
++ * Generate ontology (upload documents and simulate requirements)
++ * @param {Object} data - Includefiles, simulation_requirement, project_namewait
+  * @returns {Promise}
+  */
+ export function generateOntology(formData) {
+@@ -19,8 +19,8 @@ export function generateOntology(formData) {
+ }
+ 
+ /**
+- * 构建图谱
+- * @param {Object} data - 包含project_id, graph_name等
++ * Build a map
++ * @param {Object} data - Includeproject_id, graph_namewait
+  * @returns {Promise}
+  */
+ export function buildGraph(data) {
+@@ -34,8 +34,8 @@ export function buildGraph(data) {
+ }
+ 
+ /**
+- * 查询任务状态
+- * @param {String} taskId - 任务ID
++ * Query task status
++ * @param {String} taskId - TaskID
+  * @returns {Promise}
+  */
+ export function getTaskStatus(taskId) {
+@@ -46,8 +46,8 @@ export function getTaskStatus(taskId) {
+ }
+ 
+ /**
+- * 获取图谱数据
+- * @param {String} graphId - 图谱ID
++ * Get map data
++ * @param {String} graphId - AtlasID
+  * @returns {Promise}
+  */
+ export function getGraphData(graphId) {
+@@ -58,8 +58,8 @@ export function getGraphData(graphId) {
+ }
+ 
+ /**
+- * 获取项目信息
+- * @param {String} projectId - 项目ID
++ * Get project information
++ * @param {String} projectId - projectID
+  * @returns {Promise}
+  */
+ export function getProject(projectId) {
