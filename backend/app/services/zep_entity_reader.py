@@ -15,7 +15,7 @@ from ..utils.zep_paging import fetch_all_nodes, fetch_all_edges
 
 logger = get_logger('mirofish.zep_entity_reader')
 
-# 用于泛型返回类型
+# For generic return types
 T = TypeVar('T')
 
 
