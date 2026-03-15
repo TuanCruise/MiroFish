@@ -88,17 +88,13 @@ class LLMClient:
                 f"HTML snippet: {response_text[:200]}"
             )
         
-        # Handle 429 rate limit with retry (Gemini free tier: 15 req/min)
+        # Handle 429 rate limit (single retry with short wait — mainly for hosted services)
         if response.status_code == 429:
             import time
             import logging as _log
-            _log.getLogger('mirofish.llm').warning("Rate limited (429), retrying in 15s...")
-            time.sleep(15)
+            _log.getLogger('mirofish.llm').warning("Rate limited (429), retrying in 10s...")
+            time.sleep(10)
             response = self.http_client.post(url, json=payload, headers=headers)
-            if response.status_code == 429:
-                _log.getLogger('mirofish.llm').warning("Still rate limited, retrying in 30s...")
-                time.sleep(30)
-                response = self.http_client.post(url, json=payload, headers=headers)
         
         response.raise_for_status()
         
